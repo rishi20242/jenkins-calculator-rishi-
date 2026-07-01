@@ -2,38 +2,50 @@ pipeline {
     agent any
 
     environment {
-        // Change this to the email address where you want to receive alerts
-        ALERT_EMAIL = 'sample.com'
+        // Replace with your actual Docker Hub username and desired image name
+        DOCKER_IMAGE = 'teslaguy007/jenkins-calculator'
+        REGISTRY_CREDENTIALS_ID = 'Docker-credits'
     }
 
     stages {
-        stage('Checkout') {
+        // Stage 1: Run the testing file using Maven
+        stage('Run Tests') {
             steps {
-                checkout scm
+                echo 'Starting Maven Tests...'
+                // 'mvn test' scans src/test/java and runs CalculatorTest.java
+                sh 'mvn clean test' 
+                
+                echo 'Tests completed successfully! Take your screenshot now.'
             }
         }
-        stage('Build and Test') {
+
+        // Stage 2: Build the Java application using Docker
+        stage('Build Docker Image') {
             steps {
-                // Use 'package' to run tests AND create the jar file
-                sh 'mvn clean package'
+                echo 'Building Docker Image...'
+                // Compiles the app into the target/ directory first so Docker can copy it
+                sh 'mvn package -DskipTests'
+                // Builds the docker image using the Dockerfile at the root
+                sh "docker build -t ${DOCKER_IMAGE}:latest ."
+            }
+        }
+
+        // Stage 3: Push the image to Docker Hub
+        stage('Push to Docker Hub') {
+            steps {
+                echo 'Logging into Docker Hub and pushing image...'
+                // Securely logs into Docker Hub using the Jenkins credentials store
+                withCredentials([usernamePassword(credentialsId: REGISTRY_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASSWORD')]) {
+                    sh "echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin"
+                    sh "docker push ${DOCKER_IMAGE}:latest"
+                }
             }
         }
     }
     
     post {
-        success {
-            // Saves the jar into Jenkins build history
-            archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
-        }
-        failure {
-            // Send email if the build fails
-            mail to: "${env.ALERT_EMAIL}",
-                 subject: "Failed Pipeline: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "The build failed. You can check the logs at ${env.BUILD_URL}"
-        }
         always {
-            // Publishes test results
-            junit '**/target/surefire-reports/*.xml'
+            echo 'Pipeline execution finished.'
         }
     }
 }
